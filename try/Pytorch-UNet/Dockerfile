@@ -1,4 +1,4 @@
-FROM harbor.sensingx.local/sxai/pytorch-base
+FROM nvcr.io/nvidia/pytorch:22.06-py3
 
 RUN rm -rf /workspace/*
 WORKDIR /workspace/unet
