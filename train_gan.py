@@ -5,13 +5,16 @@ import numpy as np
 from datetime import datetime
 from utils.load_data import load_data, create_image_cube, split_data
 from models.cnn2d import cnn2d
+from models.GAN import generator, discriminator
 from tensorflow.keras.utils import to_categorical
 from keras.callbacks import LambdaCallback, ModelCheckpoint
 from sklearn.model_selection import train_test_split
 import wandb
 from wandb.keras import WandbCallback
 import logging
-import psutil
+
+
+
 
 
 def main(args):
@@ -46,7 +49,7 @@ def main(args):
     # 初始化wandb
 
     run_name = f"{args.dataset}_{datetime.now().strftime('%Y-%m-%d_%H_%M_%S')}"
-    experiment = wandb.init(project='LAND_CLASSIFICATION', resume='allow', anonymous='never', name=run_name)
+    experiment = wandb.init(project='GAN', resume='allow', anonymous='never', name=run_name)
     experiment.config.update(dict(learning_rate=args.learning_rate, num_epochs=args.num_epochs,
                                   batch_size=args.batch_size, test_percent=test_percent,
                                   train_percent=args.train_percent, val_percent=args.val_percent / args.train_percent,
@@ -54,9 +57,13 @@ def main(args):
     save_path = os.path.join(args.checkpoint_dir, run_name)
 
     
-    # 获取模型
+        # 获取模型
     input_shape = train_data.shape[1:]
-    model = cnn2d(input_shape, num_class)
+    G = generator(input_shape)  # Create the generator model
+    D = discriminator(input_shape, num_class)  # Create the discriminator model
+
+    # G.compile(loss="binary_crossentropy", optimizer="adam")
+    D.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
 
     #3 训练
     
@@ -66,31 +73,81 @@ def main(args):
     train_data_batches = len(train_data) // args.batch_size
     save_interval_batches = args.save_interval * train_data_batches
 
-    # 保存模型的回调函数
-    model_checkpoint = ModelCheckpoint(filepath=args.checkpoint_dir, save_freq=save_interval_batches, save_weights_only=False, verbose=0)
-    model_checkpoint = ModelCheckpoint(os.path.join(args.checkpoint_dir, f"best_model.h5"), monitor='val_accuracy', verbose=0, save_best_only=True)
+    # Train the GAN
+    for epoch in range(args.num_epochs):
+        for batch in range(len(train_data) // args.batch_size):
+            # Select a random batch of images
+            idx = np.random.randint(0, train_data.shape[0], args.batch_size)
+            real_images = train_data[idx]
 
-    # 模型验证集
-    val_data, val_label = (val_data, val_label) if args.use_val else (test_data, test_label)
+            # Generate a batch of fake images
+            noise = np.random.normal(0, 1, (args.batch_size, input_shape[0], input_shape[1], input_shape[2]))
+            fake_images = G.predict(noise)
 
-    # 训练模型
-    history = model.fit(train_data, train_label, 
-                        batch_size=args.batch_size, 
-                        epochs=args.num_epochs,
-                        verbose=1, 
-                        validation_data=(val_data, val_label),
-                        callbacks=[model_checkpoint, WandbCallback()])
+            # Combine real and fake images for training the discriminator
+            combined_images = np.concatenate([real_images, fake_images])
+            combined_labels = np.concatenate([train_label[idx], np.zeros((args.batch_size, num_class))])
 
+            # Train the discriminator
+            d_loss = D.train_on_batch(combined_images, combined_labels)
+
+            # Train the generator
+            noise = np.random.normal(0, 1, (args.batch_size, input_shape[0], input_shape[1], input_shape[2]))
+            valid_labels = np.ones((args.batch_size, num_class))
+            g_loss = D.train_on_batch(G.predict(noise), valid_labels)
+
+            # Log the losses
+            experiment.log({"d_loss": d_loss, "g_loss": g_loss})
+
+        # [ ... Existing code ... ]
 
     # 在测试集上评估模型
-    test_loss, test_acc = model.evaluate(test_data, test_label)
+    test_loss, test_acc = D.evaluate(test_data, test_label)
     logging.info(f"Test loss: {test_loss:.4f}, Test accuracy: {test_acc:.4f}")
-
-    # 保存模型
-    
 
     # 结束wandb
     experiment.finish()
+
+    # [ ... Existing code ... ]
+
+
+    # # 获取模型
+    # input_shape = train_data.shape[1:]
+    # model = cnn2d(input_shape, num_class)
+
+    # #3 训练
+    
+    # checkpoint_path = os.path.join(args.checkpoint_dir, f"{run_name}_{{epoch:02d}}.h5")
+
+    # # 每个 epoch 保存一次模型
+    # train_data_batches = len(train_data) // args.batch_size
+    # save_interval_batches = args.save_interval * train_data_batches
+
+    # # 保存模型的回调函数
+    # model_checkpoint = ModelCheckpoint(filepath=args.checkpoint_dir, save_freq=save_interval_batches, save_weights_only=False, verbose=0)
+    # model_checkpoint = ModelCheckpoint(os.path.join(args.checkpoint_dir, f"best_model.h5"), monitor='val_accuracy', verbose=0, save_best_only=True)
+
+    # # 模型验证集
+    # val_data, val_label = (val_data, val_label) if args.use_val else (test_data, test_label)
+
+    # # 训练模型
+    # history = model.fit(train_data, train_label, 
+    #                     batch_size=args.batch_size, 
+    #                     epochs=args.num_epochs,
+    #                     verbose=1, 
+    #                     validation_data=(val_data, val_label),
+    #                     callbacks=[model_checkpoint, WandbCallback()])
+
+
+    # # 在测试集上评估模型
+    # test_loss, test_acc = model.evaluate(test_data, test_label)
+    # logging.info(f"Test loss: {test_loss:.4f}, Test accuracy: {test_acc:.4f}")
+
+    # # 保存模型
+    
+
+    # # 结束wandb
+    # experiment.finish()
 
 
 if __name__ == '__main__':
