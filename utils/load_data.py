@@ -1,10 +1,13 @@
 import os
 import numpy as np
+import cv2
 from scipy.io import loadmat
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from patchify import patchify
+
 
 def load_data(dataset, path_dset='./datasets', num_components = None, preprocessing="standard"):
     """
@@ -85,33 +88,75 @@ def split_data(data, label, test_percent=0.2, random_state=42):
     return train_data, test_data, train_label, test_label
 
 
-def pad_with_zeros(X, margin=2):
-    """
-    将高光谱图像沿边缘填充零
+# def pad_with_zeros(X, margin=2):
+#     """
+#     将高光谱图像沿边缘填充零
 
-    Parameters
-    ----------
-    X : numpy.ndarray
-        高光谱图像
-    margin : int, optional
-        填充的大小，默认为2
+#     Parameters
+#     ----------
+#     X : numpy.ndarray
+#         高光谱图像
+#     margin : int, optional
+#         填充的大小，默认为2
 
-    Returns
-    -------
-    numpy.ndarray
-        填充后的数组
-    """
-    # 新建一个零矩阵，大小为原数组加上两倍的边缘宽度
-    newX = np.zeros((X.shape[0] + 2 * margin, X.shape[1] + 2* margin, X.shape[2]))
-    # 计算偏移量
-    x_offset = margin
-    y_offset = margin
-    # 将原数组复制到新矩阵的中心
-    newX[x_offset:X.shape[0] + x_offset, y_offset:X.shape[1] + y_offset, :] = X
-    return newX
+#     Returns
+#     -------
+#     numpy.ndarray
+#         填充后的数组
+#     """
+#     # 新建一个零矩阵，大小为原数组加上两倍的边缘宽度
+#     newX = np.zeros((X.shape[0] + 2 * margin, X.shape[1] + 2* margin, X.shape[2]))
+#     # 计算偏移量
+#     x_offset = margin
+#     y_offset = margin
+#     # 将原数组复制到新矩阵的中心
+#     newX[x_offset:X.shape[0] + x_offset, y_offset:X.shape[1] + y_offset, :] = X
+#     return newX
 
 
-def create_image_cube(data, labels, window_size = 19, remove_zero_labels=True):
+# def create_image_cube(data, labels, window_size = 19, remove_zero_labels=True):
+#     """
+#     以data中每一个像素为中心，取一个大小为(window_size, window_size, data.shape[2])的立方体，
+#     将这些立方体合并成一个数组后输出。
+
+#     参数：
+#     data: 输入数据，形状为(m, n, k)，m和n表示行和列数，k表示通道数。
+#     labels: 输入标签，形状为(m, n)。
+#     window_size: 每个立方体的大小。
+
+#     返回值：
+#     patches_data: 返回一个形状为(num_patches, window_size, window_size, data.shape[2])的数组，
+#                   其中num_patches为立方体的总数。
+#     patches_labels: 返回一个形状为(num_patches,)的一维数组，对应patches_data中每个立方体的标签。
+#     """
+#     # 计算边缘宽度
+#     margin = int((window_size - 1) / 2)
+    
+#     # 对输入数据进行边缘填充
+#     zero_padded_data = pad_with_zeros(data, margin=margin)
+    
+#     # 创建立方体数组
+#     patches_data = np.zeros((data.shape[0] * data.shape[1], window_size, window_size, data.shape[2]))
+#     patches_labels = np.zeros((data.shape[0] * data.shape[1]))
+#     patch_index = 0
+    
+#     # 对每个像素点构建立方体
+#     for r in range(margin, zero_padded_data.shape[0] - margin):
+#         for c in range(margin, zero_padded_data.shape[1] - margin):
+#             patch = zero_padded_data[r - margin:r + margin + 1, c - margin:c + margin + 1]
+#             patches_data[patch_index, :, :, :] = patch
+#             patches_labels[patch_index] = labels[r-margin, c-margin]
+#             patch_index = patch_index + 1
+            
+#     # 如果移除零标签
+#     if remove_zero_labels:
+#         patches_data = patches_data[patches_labels>0,:,:,:]
+#         patches_labels = patches_labels[patches_labels>0]
+#         patches_labels -= 1
+
+
+
+def create_image_cube(data, labels, window_size=64, remove_zero_labels=True):
     """
     以data中每一个像素为中心，取一个大小为(window_size, window_size, data.shape[2])的立方体，
     将这些立方体合并成一个数组后输出。
@@ -120,38 +165,33 @@ def create_image_cube(data, labels, window_size = 19, remove_zero_labels=True):
     data: 输入数据，形状为(m, n, k)，m和n表示行和列数，k表示通道数。
     labels: 输入标签，形状为(m, n)。
     window_size: 每个立方体的大小。
+    remove_zero_labels: 是否移除零标签的立方体。
 
     返回值：
     patches_data: 返回一个形状为(num_patches, window_size, window_size, data.shape[2])的数组，
                   其中num_patches为立方体的总数。
     patches_labels: 返回一个形状为(num_patches,)的一维数组，对应patches_data中每个立方体的标签。
     """
-    # 计算边缘宽度
-    margin = int((window_size - 1) / 2)
-    
     # 对输入数据进行边缘填充
-    zero_padded_data = pad_with_zeros(data, margin=margin)
-    
-    # 创建立方体数组
-    patches_data = np.zeros((data.shape[0] * data.shape[1], window_size, window_size, data.shape[2]))
-    patches_labels = np.zeros((data.shape[0] * data.shape[1]))
-    patch_index = 0
-    
-    # 对每个像素点构建立方体
-    for r in range(margin, zero_padded_data.shape[0] - margin):
-        for c in range(margin, zero_padded_data.shape[1] - margin):
-            patch = zero_padded_data[r - margin:r + margin + 1, c - margin:c + margin + 1]
-            patches_data[patch_index, :, :, :] = patch
-            patches_labels[patch_index] = labels[r-margin, c-margin]
-            patch_index = patch_index + 1
-            
+    if window_size % 2 == 1:
+        padding_size = (window_size - 1) // 2
+        padded_data = cv2.copyMakeBorder(data, padding_size, padding_size, padding_size, padding_size, cv2.BORDER_REPLICATE)
+    else:
+        padding_size_top_left = window_size // 2
+        padding_size_bottom_right = window_size // 2 - 1
+        padded_data = cv2.copyMakeBorder(data, padding_size_top_left, padding_size_bottom_right, padding_size_top_left, padding_size_bottom_right, cv2.BORDER_REPLICATE)
+
+    # 将数据分块成大小为window_size的立方体
+    patches_data = patchify(padded_data, (window_size, window_size, data.shape[2]), step=1).reshape(-1, window_size, window_size, data.shape[2])
+    patches_labels = labels.reshape(-1)
+
     # 如果移除零标签
     if remove_zero_labels:
-        patches_data = patches_data[patches_labels>0,:,:,:]
-        patches_labels = patches_labels[patches_labels>0]
-        patches_labels -= 1
+        patches_data = patches_data[patches_labels > 0, :, :, :]
+        patches_labels = patches_labels[patches_labels > 0] - 1
 
-    return patches_data, patches_labels.astype("int")
+
+    return patches_data, patches_labels
 
 
 

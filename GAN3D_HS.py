@@ -4,7 +4,7 @@ import logging
 import os
 import cv2
 import matplotlib.pyplot as plt
-from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, multiply, Embedding, BatchNormalization, LeakyReLU, Flatten, Dense, Reshape, Activation
+from tensorflow.keras.layers import Input, Conv3D, Conv3DTranspose, multiply, Embedding, BatchNormalization, LeakyReLU, Flatten, Dense, Reshape, Activation, Dropout
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical
@@ -14,9 +14,11 @@ from utils.load_data import load_data, split_data, create_image_cube
 from utils.metrics import reports, save_report, read_report, visualize_report
 from utils.visualization import RGBImage
 
+import wandb
 
 
-class GAN3D():
+
+class GAN3D_HS():
     def __init__(self, input_shape, num_classes, latent_dim, checkpoint_dir):
 		# Input shape
         self.input_shape = input_shape
@@ -62,88 +64,89 @@ class GAN3D():
 
 
     def build_generator(self):
-	
+
         model = Sequential()
-	
-        model.add(Dense(2*2*512, activation="relu", input_dim=latent_dim))
-        model.add(Reshape((2,2, 512)))
+
+        model.add(Dense(1 * 1 * 4 * 256, activation="relu", input_dim=self.latent_dim))
+        model.add(Reshape((1, 1, 4, 256)))
         model.add(BatchNormalization(momentum=0.8))
-        # model.add(UpSampling2D(size=4))      
 
-        model.add(Conv2DTranspose(512, kernel_size=(4,4), strides=2, padding="same"))
+        model.add(Conv3DTranspose(256, kernel_size=(3, 3, 18), strides=(3, 3, 5), padding="same"))
         model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
-        #    
-        model.add(Conv2DTranspose(256, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
-        #     
-        model.add(Conv2DTranspose(128, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
+        model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv2DTranspose(64, kernel_size=(4,4), strides=2, padding="same"))
+        model.add(Conv3DTranspose(64, kernel_size=(3, 3, 9), strides=(3, 3, 5), padding="same"))
         model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
+        model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv2DTranspose(3, kernel_size=(4,4), strides=2, padding='same'))
+
+        model.add(Conv3DTranspose(1, kernel_size=(3, 3, 3), strides=(1, 1, 2), padding="same"))
         model.add(Activation("tanh"))
 
         model.summary()
-	
+
         noise = Input(shape=(self.latent_dim,))
         label = Input(shape=(1,), dtype='int32')
         label_embedding = Flatten()(Embedding(self.num_classes, self.latent_dim)(label))
 
         model_input = multiply([noise, label_embedding])
         img = model(model_input)
-	
+
         return Model([noise, label], img)
 
     def build_discriminator(self):
-	
-        model = Sequential()        
 
-        model.add(Conv2D(64, kernel_size=(4,4), strides=2, input_shape=self.input_shape, padding="same"))
-        model.add(LeakyReLU(alpha=0.2))     
+        model = Sequential()
 
-        model.add(Conv2D(128, kernel_size=(4,4), strides=2, padding="same"))
+        # model.add(Conv3D(64, kernel_size=(3, 3, 32), strides=(1, 1, 8), input_shape=self.input_shape, padding="same"))
+        # model.add(LeakyReLU(alpha=0.2))
+
+        # model.add(Conv3D(128, kernel_size=(3, 3, 16), strides=(3, 3, 4), padding="same"))
+        # model.add(LeakyReLU(alpha=0.2))
+        # model.add(Dropout(0.25))
+        # model.add(BatchNormalization(momentum=0.8))
+
+        # model.add(Conv3D(256, kernel_size=(3, 3, 8), strides=(3, 3, 2), padding="same"))
+        # model.add(LeakyReLU(alpha=0.2))
+        # model.add(Dropout(0.25))
+        # model.add(BatchNormalization(momentum=0.8))
+
+        model.add(Conv3D(32, kernel_size=(3, 3, 24), strides=(2, 2, 8), input_shape=self.input_shape, padding="same"))
         model.add(LeakyReLU(alpha=0.2))
-        model.add(BatchNormalization(momentum=0.8))     
 
-        model.add(Conv2D(256, kernel_size=(4,4), strides=2, padding="same"))
+        model.add(Conv3D(64, kernel_size=(3, 3, 16), strides=(2, 2, 4), padding="same"))
         model.add(LeakyReLU(alpha=0.2))
-        model.add(BatchNormalization(momentum=0.8))     
+        model.add(Dropout(0.25))
+        model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv2D(512, kernel_size=(4,4), strides=2, padding="same"))
+        model.add(Conv3D(128, kernel_size=(3, 3, 6), strides=(2, 2, 2), padding="same"))
         model.add(LeakyReLU(alpha=0.2))
-        model.add(BatchNormalization(momentum=0.8))     
+        model.add(Dropout(0.25))
+        model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv2D(64, kernel_size=(4,4), strides=1, padding="same"))     
+
         model.add(Flatten())
-	
+
         model.summary()
-	
+
         img = Input(shape=self.input_shape)
 
         # Extract feature representation
         features = model(img)
-	
+
         # Determine validity and label of the image
         validity = Dense(1, activation="sigmoid")(features)
         label = Dense(self.num_classes, activation="softmax")(features)
-	
+
         return Model(img, [validity, label])
     
-    def train(self, x_train, y_train, epochs, batch_size, save_interval = 50, run_name='GAN1D'):  
+    def train(self, x_train, y_train, epochs, batch_size, save_interval = 50, run_name='GAN3D_HS'):  
+        wandb.init(project='GAN3D_HS', name=run_name)
+        wandb.config.update({"epochs": epochs, "batch_size": batch_size})
 
         valid = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
-        best_d_loss = float('inf')
+        best_op_acc_val = float('inf')
         num_batches = int(x_train.shape[0] / batch_size)
         for epoch in range(epochs):
             for batch_idx in range(num_batches):
@@ -183,7 +186,14 @@ class GAN3D():
                 # Plot the progress
 
                 print ("Training Metrics: %d [D loss: %f, acc.: %.2f%%, op_acc: %.2f%%] [G loss: %f]" % (epoch, d_loss[0], 100*d_loss[3], 100*d_loss[4], g_loss[0]))
-                # If at save interval => save generated image samples
+                wandb.log({
+                    'D_loss': d_loss[0],
+                    # 'D_acc': 100 * d_loss[3],
+                    'D_op_acc': d_loss[4],
+                    'G_loss': g_loss[0]
+                })
+
+                
              # Evaluate on the validation set
             idx_val = np.random.randint(0, x_test.shape[0], batch_size)
             real_data_val = x_test[idx_val]
@@ -191,13 +201,23 @@ class GAN3D():
             d_loss_val = self.discriminator.evaluate(real_data_val, [valid, real_labels_val], verbose=0)
             g_loss_val = self.combined.evaluate([noise, fake_labels], [valid, fake_labels], verbose=0)
             print("Validation Metrics: %d [D loss: %f, acc.: %.2f%%, op_acc: %.2f%%] [G loss: %f]" % (epoch, d_loss_val[0], 100 * d_loss_val[3], 100 * d_loss_val[4], g_loss_val[0]))
+            
+            wandb.log({
 
+                'D_loss_val': d_loss_val[0],
+                # 'D_acc_val': 100 * d_loss_val[3],
+                'D_op_acc_val': d_loss_val[4],
+                'G_loss_val': g_loss_val[0]
+            })
+
+            # If at save interval => save generated image samples
             if epoch % save_interval == 0:
                 self.save_model(epoch)
 
-            if d_loss[0] < best_d_loss:
-                best_d_loss = d_loss[0]
+            if d_loss_val[4] < best_op_acc_val:
+                best_op_acc_val = d_loss_val[4]
                 self.save_best_model()
+        wandb.finish()
 
     def save_model(self, epoch):
         def save(model, model_name, epoch):
@@ -218,7 +238,7 @@ if __name__ == '__main__':
 
     # parser.add_argument('--learning_rate', type=float, default=0.001, help='学习率')
     parser.add_argument('--num_epochs', type=int, default=400, help='训练轮数')
-    parser.add_argument('--batch_size', type=int, default=256, help='批次大小')
+    parser.add_argument('--batch_size', type=int, default=512, help='批次大小')
     parser.add_argument('--dataset', type=str, default='indian_pines', choices=['indian_pines', 'salinas'], help='选择要使用的数据集')
 
     parser.add_argument('--num_components', type=int, default=3, help='PCA 降维后的维度')
@@ -229,9 +249,9 @@ if __name__ == '__main__':
     # parser.add_argument('--val_percent', default=0.1, type=float, help='验证集比例(验证集从测试集中划分)')
 
     parser.add_argument('--save_interval', type=int, default=50, help='保存模型的间隔')
-    parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints/GAN3D', help='保存模型的目录')
+    parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints/GAN3D_HS', help='保存模型的目录')
     parser.add_argument('--random_state', type=int, default=42, help='随机数种子')
-    parser.add_argument('--spatial_size', default=64, type=int, help='构建数据立方体时采用的窗口大小')
+    parser.add_argument('--spatial_size', default=9, type=int, help='构建数据立方体时采用的窗口大小')
     
     parser.add_argument('--use_gpu', action='store_true', default=True, help='使用 GPU 训练')
     parser.add_argument('--test_only', action='store_true', default=False, help='只测试模型')
@@ -243,16 +263,13 @@ if __name__ == '__main__':
     
     # 1 数据预处理
     # 加载数据集
-    data_ori, label_ori, num_classes = load_data(args.dataset, num_components = args.num_components, preprocessing=args.preprocess)
+    data_ori, label_ori, num_classes = load_data(args.dataset, preprocessing=args.preprocess)
 
     data_ori, label_ori = create_image_cube(data_ori, label_ori, window_size=args.spatial_size, remove_zero_labels = False)
     
     # # 0 代表背景，不参与训练
     data = data_ori[label_ori!=0]
     label = label_ori[label_ori!=0] - 1
-
-    # print(label - label_ori)
-    # exit()
 
 
     for pos in range(args.repeat):
@@ -273,14 +290,17 @@ if __name__ == '__main__':
         
         input_shape = x_train.shape[1:]
         latent_dim = 100
+
+        run_name = f'GAN3D_HS_{args.dataset}_b{args.batch_size}_e{args.num_epochs}_w{args.spatial_size}_n{pos}'
+
         if not args.test_only:
         # 训练部分
-            GAN = GAN3D(input_shape, num_classes, latent_dim, checkpoint_dir=save_path)
-            GAN.train(x_train, y_train, args.num_epochs, args.batch_size, args.save_interval)
+            GAN = GAN3D_HS(input_shape, num_classes, latent_dim, checkpoint_dir=save_path)
+            GAN.train(x_train, y_train, args.num_epochs, args.batch_size, args.save_interval, run_name = run_name)
         
         # 测试部分
         # del GAN
-        GAN_D = GAN3D(input_shape, num_classes, latent_dim, checkpoint_dir=save_path).discriminator
+        GAN_D = GAN3D_HS(input_shape, num_classes, latent_dim, checkpoint_dir=save_path).discriminator
         GAN_D.load_weights(os.path.join(save_path, 'D_best.hdf5'))
 
 

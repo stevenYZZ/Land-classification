@@ -7,3 +7,5 @@ checkpoints/
 venv/
 .idea/
 wandb/
+logs/
+output/

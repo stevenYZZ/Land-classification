@@ -54,10 +54,7 @@ class GAN1D():
 
         # The combined model  (stacked generator and discriminator)
         # Trains the generator to fool the discriminator
-        # print([noise, label])
-        # print([valid, target_label])
 
-        # exit()
         self.combined = Model([noise, label], [valid, target_label])
         self.combined.compile(loss=losses,
             optimizer=optimizer)
@@ -155,8 +152,6 @@ class GAN1D():
             # image representation of
             fake_labels = np.random.randint(0, self.num_classes, batch_size)
 
-            # print(fake_labels.shape)
-            # exit()
             # Generate a half batch of new images
             fake_data = self.generator.predict([noise, fake_labels])
 
@@ -199,19 +194,6 @@ class GAN1D():
         weights_path = os.path.join(self.checkpoint_dir, "%s_best.hdf5" % ("D"))
         self.discriminator.save_weights(weights_path)
 
-    # def test(self, x_test, y_test):
-    #     """
-    #     Test the discriminator using test data.
-    #         x_test: Test data, 2D numpy array of shape (num_samples, num_bands)
-    #         y_test: Test labels, 1D numpy array of shape (num_samples,)
-    #     """
-
-    #     # Predict the validity and class labels using the discriminator
-    #     stats = np.ones(self.num_classes + 3) * -1000.0 # OA, AA, K, Aclass
-    #     _, y_pred = self.discriminator.predict(x_test)
-    #     stats = reports(np.argmax(y_pred, axis=1), y_test)[2]
-    #     print(stats)
-
 
 
 if __name__ == '__main__':
@@ -236,8 +218,6 @@ if __name__ == '__main__':
     parser.add_argument('--use_gpu', action='store_true', default=True, help='使用 GPU 训练')
     parser.add_argument('--test_only', action='store_true', default=False, help='只测试模型')
 
-
-    # parser.add_argument('--log_dir', type=str, default='./logs', help='保存日志的目录')
     args = parser.parse_args()
 
     # 初始化日志
@@ -280,7 +260,7 @@ if __name__ == '__main__':
         # 测试部分
         # del GAN
         GAN_D = GAN1D(input_shape, num_classes, latent_dim, checkpoint_dir=save_path).discriminator
-        GAN_D.load_weights(os.path.join(args.checkpoint_dir, 'D_best.hdf5'))
+        GAN_D.load_weights(os.path.join(save_path, 'D_best.hdf5'))
 
 
         _, y_pred = GAN_D.predict(x_test)
@@ -305,12 +285,3 @@ if __name__ == '__main__':
         rgb_true = RGBImage(label_ori.reshape(145,145))
         cv2.imwrite(os.path.join(save_path, "y_pred.png"), rgb_pred)
         cv2.imwrite(os.path.join(save_path, "y_true.png"), rgb_true)
-
-
-
-
-
-
-
-
-	
