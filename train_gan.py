@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime
 from utils.load_data import load_data, create_image_cube, split_data
 from models.cnn2d import cnn2d
-from models.GAN import generator, discriminator
+# from models.DCGAN import generator, discriminator
 from tensorflow.keras.utils import to_categorical
 from keras.callbacks import LambdaCallback, ModelCheckpoint
 from sklearn.model_selection import train_test_split
@@ -108,48 +108,6 @@ def main(args):
     # 结束wandb
     experiment.finish()
 
-    # [ ... Existing code ... ]
-
-
-    # # 获取模型
-    # input_shape = train_data.shape[1:]
-    # model = cnn2d(input_shape, num_class)
-
-    # #3 训练
-    
-    # checkpoint_path = os.path.join(args.checkpoint_dir, f"{run_name}_{{epoch:02d}}.h5")
-
-    # # 每个 epoch 保存一次模型
-    # train_data_batches = len(train_data) // args.batch_size
-    # save_interval_batches = args.save_interval * train_data_batches
-
-    # # 保存模型的回调函数
-    # model_checkpoint = ModelCheckpoint(filepath=args.checkpoint_dir, save_freq=save_interval_batches, save_weights_only=False, verbose=0)
-    # model_checkpoint = ModelCheckpoint(os.path.join(args.checkpoint_dir, f"best_model.h5"), monitor='val_accuracy', verbose=0, save_best_only=True)
-
-    # # 模型验证集
-    # val_data, val_label = (val_data, val_label) if args.use_val else (test_data, test_label)
-
-    # # 训练模型
-    # history = model.fit(train_data, train_label, 
-    #                     batch_size=args.batch_size, 
-    #                     epochs=args.num_epochs,
-    #                     verbose=1, 
-    #                     validation_data=(val_data, val_label),
-    #                     callbacks=[model_checkpoint, WandbCallback()])
-
-
-    # # 在测试集上评估模型
-    # test_loss, test_acc = model.evaluate(test_data, test_label)
-    # logging.info(f"Test loss: {test_loss:.4f}, Test accuracy: {test_acc:.4f}")
-
-    # # 保存模型
-    
-
-    # # 结束wandb
-    # experiment.finish()
-
-
 if __name__ == '__main__':
     os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
 
@@ -161,7 +119,7 @@ if __name__ == '__main__':
     parser.add_argument('--display_step', type=int, default=10, help='显示间隔')
     parser.add_argument('--dataset', type=str, default='indian_pines', choices=['indian_pines', 'salinas'], help='选择要使用的数据集')
 
-    parser.add_argument('--train_percent', default=0.15, type=float, help='训练集比例')
+    parser.add_argument('--train_percent', default=0.2, type=float, help='训练集比例')
     parser.add_argument('--use_val', action='store_true', default=True, help='使用验证集')
     parser.add_argument('--val_percent', default=0.1, type=float, help='验证集比例(验证集从测试集中划分)')
 

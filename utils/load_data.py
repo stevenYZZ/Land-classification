@@ -1,11 +1,12 @@
 import os
 import numpy as np
 from scipy.io import loadmat
+from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
-def load_data(dataset, path_dset='../HSI-datasets', preprocessing="standard"):
+def load_data(dataset, path_dset='./datasets', num_components = None, preprocessing="standard"):
     """
         加载数据集
         param：
@@ -40,18 +41,24 @@ def load_data(dataset, path_dset='../HSI-datasets', preprocessing="standard"):
     data = loadmat(data_path)[data_key]
     label = loadmat(label_path)[label_key]
 
-    # 数据归一化处理
     shapeor = data.shape
     data = data.reshape(-1, data.shape[-1])
 
+    # 数据归一化处理
     # 根据参数选择不同的归一化方法
     if preprocessing == "standard": data = StandardScaler().fit_transform(data)
     elif preprocessing == "minmax": data = MinMaxScaler().fit_transform(data)
     elif preprocessing == "none": pass
     else: print("[WARNING] No preprocessing method selected")
 
-    data = data.reshape(shapeor)
+    # 数据降维处理
+    # 根据参数选择是否进行降维处理
+    if num_components != None:
+        data = PCA(n_components=num_components).fit_transform(data)
+        shapeor = np.array(shapeor)
+        shapeor[-1] = num_components
 
+    data = data.reshape(shapeor)
     # 将数据和标签打包成一个字典并返回
     return data, label, num_class
 
