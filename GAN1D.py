@@ -14,6 +14,9 @@ from utils.load_data import load_data, split_data
 from utils.metrics import reports, save_report, read_report, visualize_report
 from utils.visualization import RGBImage
 
+from PIL import Image
+
+
 
 
 class GAN1D():
@@ -283,5 +286,10 @@ if __name__ == '__main__':
 
         rgb_pred = RGBImage(image_pred)
         rgb_true = RGBImage(label_ori.reshape(145,145))
-        cv2.imwrite(os.path.join(save_path, "y_pred.png"), rgb_pred)
-        cv2.imwrite(os.path.join(save_path, "y_true.png"), rgb_true)
+        # cv2.imwrite(os.path.join(save_path, "y_pred.png"), rgb_pred)
+        # cv2.imwrite(os.path.join(save_path, "y_true.png"), rgb_true)
+
+        img_rgb_pred = Image.fromarray(np.uint8(rgb_pred))
+        img_rgb_true = Image.fromarray(np.uint8(rgb_true))
+        img_rgb_pred.save(os.path.join(save_path, "y_pred.png"))
+        img_rgb_true.save(os.path.join(save_path, "y_true.png"))

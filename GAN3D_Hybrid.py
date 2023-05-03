@@ -3,22 +3,22 @@ import datetime
 import logging
 import os
 import cv2
-from PIL import Image
 import matplotlib.pyplot as plt
-from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, multiply, Embedding, BatchNormalization, LeakyReLU, Flatten, Dense, Reshape, Activation
+from tensorflow.keras.layers import Input, GlobalAveragePooling2D, Concatenate, Conv2D, Conv2DTranspose, Conv3D, Conv3DTranspose, multiply, Embedding, BatchNormalization, LeakyReLU, Flatten, Dense, Reshape, Activation, Dropout
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical
 import numpy as np
-import wandb
 
 from utils.load_data import load_data, split_data, create_image_cube
 from utils.metrics import reports, save_report, read_report, visualize_report
 from utils.visualization import RGBImage
 
+import wandb
 
 
-class GAN3D():
+
+class GAN3D_Hybrid():
     def __init__(self, input_shape, num_classes, latent_dim, checkpoint_dir):
 		# Input shape
         self.input_shape = input_shape
@@ -64,85 +64,69 @@ class GAN3D():
 
 
     def build_generator(self):
-	
-        model = Sequential()
-	
-        model.add(Dense(2*2*512, activation="relu", input_dim=latent_dim))
-        model.add(Reshape((2,2, 512)))
-        model.add(BatchNormalization(momentum=0.8))
-        # model.add(UpSampling2D(size=4))      
 
-        model.add(Conv2DTranspose(512, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
-        #    
-        model.add(Conv2DTranspose(256, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
-        #     
-        model.add(Conv2DTranspose(128, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
+        noise = Input(shape=(self.latent_dim, ))
+        label = Input(shape=(1,))
+        model_input = Concatenate()([noise, label])
 
-        model.add(Conv2DTranspose(64, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))     
-        # model.add(UpSampling2D(size=4))
+        x = Dense(7 * 7 * 256, use_bias=False)(model_input)
+        x = BatchNormalization(momentum=0.9)(x)
+        x = LeakyReLU()(x)
 
-        model.add(Conv2DTranspose(3, kernel_size=(4,4), strides=2, padding='same'))
-        model.add(Activation("tanh"))
+        x = Reshape((7, 7, 256))(x)
 
-        model.summary()
-	
-        noise = Input(shape=(self.latent_dim,))
-        label = Input(shape=(1,), dtype='int32')
-        label_embedding = Flatten()(Embedding(self.num_classes, self.latent_dim)(label))
+        x = Conv2DTranspose(
+            128, (5, 5), strides=(1, 1), padding='same', use_bias=False)(x)
+        x = BatchNormalization(momentum=0.9)(x)
+        x = LeakyReLU()(x)
 
-        model_input = multiply([noise, label_embedding])
-        img = model(model_input)
-	
+        x = Conv2DTranspose(
+            64, (5, 5), strides=(2, 2), padding='same', use_bias=False)(x)
+        x = BatchNormalization(momentum=0.9)(x)
+        x = LeakyReLU()(x)
+
+        x = Conv2DTranspose(
+            1, (5, 5), strides=(2, 2), padding='same', use_bias=False)(x)
+        x = BatchNormalization(momentum=0.9)(x)
+
+        img = Flatten()(x)
+        
+        # gamoGen = Model([noise, labels], gamoGenFinal)
+        # return gamoGen
+
         return Model([noise, label], img)
 
     def build_discriminator(self):
-	
-        model = Sequential()        
 
-        model.add(Conv2D(64, kernel_size=(4,4), strides=2, input_shape=self.input_shape, padding="same"))
-        model.add(LeakyReLU(alpha=0.2))     
+        model = Sequential()
+        
+        model.add(Conv3D(filters=8, kernel_size=(1, 1, 7), activation='relu', padding='same', input_shape=self.input_shape))
+        model.add(Conv3D(filters=16, kernel_size=(3, 3, 5), activation='relu',padding='same'))
+        model.add(Conv3D(filters=32, kernel_size=(5, 5, 7), activation='relu',padding='same'))
 
-        model.add(Conv2D(128, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(BatchNormalization(momentum=0.8))     
+        output_shape = model.layers[-1].output_shape[1:]
+        reshaped_shape = (output_shape[0], output_shape[1], output_shape[2] * output_shape[3])
+        model.add(Reshape(reshaped_shape))
 
-        model.add(Conv2D(256, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(BatchNormalization(momentum=0.8))     
-
-        model.add(Conv2D(512, kernel_size=(4,4), strides=2, padding="same"))
-        model.add(LeakyReLU(alpha=0.2))
-        model.add(BatchNormalization(momentum=0.8))     
-
-        model.add(Conv2D(64, kernel_size=(4,4), strides=1, padding="same"))     
+        model.add(Conv2D(filters=64, kernel_size=(3,3), activation='relu',padding='same'))
+        model.add(GlobalAveragePooling2D())
         model.add(Flatten())
-	
+        model.add(Dropout(0.5))
         model.summary()
-	
+        
         img = Input(shape=self.input_shape)
-
+        
         # Extract feature representation
         features = model(img)
-	
+
         # Determine validity and label of the image
-        validity = Dense(1, activation="sigmoid")(features)
-        label = Dense(self.num_classes, activation="softmax")(features)
-	
+        validity = Dense(1, activation='sigmoid', kernel_initializer="he_normal")(features)
+        label = Dense(self.num_classes, activation="softmax", kernel_initializer="he_normal")(features)
+
         return Model(img, [validity, label])
     
-    def train(self, x_train, y_train, epochs, batch_size, save_interval = 50, run_name='GAN1D'):  
-        wandb.init(project='GAN3D', name=run_name)
+    def train(self, x_train, y_train, epochs, batch_size, save_interval = 50, run_name='GAN3D_HS'):  
+        wandb.init(project='GAN3D_Hybrid', name=run_name)
         wandb.config.update({"epochs": epochs, "batch_size": batch_size})
 
         valid = np.ones((batch_size, 1))
@@ -238,13 +222,12 @@ class GAN3D():
 
 
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # parser.add_argument('--learning_rate', type=float, default=0.001, help='学习率')
     parser.add_argument('--num_epochs', type=int, default=400, help='训练轮数')
-    parser.add_argument('--batch_size', type=int, default=256, help='批次大小')
+    parser.add_argument('--batch_size', type=int, default=512, help='批次大小')
     parser.add_argument('--dataset', type=str, default='indian_pines', choices=['indian_pines', 'salinas'], help='选择要使用的数据集')
 
     parser.add_argument('--num_components', type=int, default=3, help='PCA 降维后的维度')
@@ -255,9 +238,9 @@ if __name__ == '__main__':
     # parser.add_argument('--val_percent', default=0.1, type=float, help='验证集比例(验证集从测试集中划分)')
 
     parser.add_argument('--save_interval', type=int, default=50, help='保存模型的间隔')
-    parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints/GAN3D', help='保存模型的目录')
+    parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints/GAN3D_Hybrid', help='保存模型的目录')
     parser.add_argument('--random_state', type=int, default=42, help='随机数种子')
-    parser.add_argument('--spatial_size', default=64, type=int, help='构建数据立方体时采用的窗口大小')
+    parser.add_argument('--spatial_size', default=9, type=int, help='构建数据立方体时采用的窗口大小')
     
     parser.add_argument('--use_gpu', action='store_true', default=True, help='使用 GPU 训练')
     parser.add_argument('--test_only', action='store_true', default=False, help='只测试模型')
@@ -269,16 +252,13 @@ if __name__ == '__main__':
     
     # 1 数据预处理
     # 加载数据集
-    data_ori, label_ori, num_classes = load_data(args.dataset, num_components = args.num_components, preprocessing=args.preprocess)
+    data_ori, label_ori, num_classes = load_data(args.dataset, preprocessing=args.preprocess)
 
     data_ori, label_ori = create_image_cube(data_ori, label_ori, window_size=args.spatial_size, remove_zero_labels = False)
     
     # # 0 代表背景，不参与训练
     data = data_ori[label_ori!=0]
     label = label_ori[label_ori!=0] - 1
-
-    # print(label - label_ori)
-    # exit()
 
 
     for pos in range(args.repeat):
@@ -300,16 +280,17 @@ if __name__ == '__main__':
         input_shape = x_train.shape[1:]
         latent_dim = 100
 
-        run_name = f'GAN3D_{args.dataset}_b{args.batch_size}_e{args.num_epochs}_w{args.spatial_size}_n{pos}'
+        run_name = f'GAN3D_Hybrid_{args.dataset}_b{args.batch_size}_e{args.num_epochs}_w{args.spatial_size}_n{pos}'
+
         if not args.test_only:
         # 训练部分
-            GAN = GAN3D(input_shape, num_classes, latent_dim, checkpoint_dir=save_path)
-            GAN.train(x_train, y_train, args.num_epochs, args.batch_size, args.save_interval, run_name=run_name)
+            GAN = GAN3D_Hybrid(input_shape, num_classes, latent_dim, checkpoint_dir=save_path)
+            GAN.train(x_train, y_train, args.num_epochs, args.batch_size, args.save_interval, run_name = run_name)
         
         # 测试部分
         # del GAN
-        GAN_D = GAN3D(input_shape, num_classes, latent_dim, checkpoint_dir=save_path).discriminator
-        GAN_D.load_weights(os.path.join(save_path, 'D_100.hdf5'))
+        GAN_D = GAN3D_Hybrid(input_shape, num_classes, latent_dim, checkpoint_dir=save_path).discriminator
+        GAN_D.load_weights(os.path.join(save_path, 'D_best.hdf5'))
 
 
         _, y_pred = GAN_D.predict(x_test)
@@ -333,12 +314,5 @@ if __name__ == '__main__':
 
         rgb_pred = RGBImage(image_pred)
         rgb_true = RGBImage(label_ori)
-
-        img_rgb_pred = Image.fromarray(np.uint8(rgb_pred))
-        img_rgb_true = Image.fromarray(np.uint8(rgb_true))
-        img_rgb_pred.save(os.path.join(save_path, "y_pred.png"))
-        img_rgb_true.save(os.path.join(save_path, "y_true.png"))
-        # cv2.imwrite(os.path.join(save_path, "y_pred.png"), rgb_pred)
-        # cv2.imwrite(os.path.join(save_path, "y_true.png"), rgb_true)
-        # cv2.imwrite(os.path.join(save_path, "y_pred.png"), (rgb_pred * 255).astype(np.uint8))
-        # cv2.imwrite(os.path.join(save_path, "y_true.png"), (rgb_true * 255).astype(np.uint8))
+        cv2.imwrite(os.path.join(save_path, "y_pred.png"), rgb_pred)
+        cv2.imwrite(os.path.join(save_path, "y_true.png"), rgb_true)
