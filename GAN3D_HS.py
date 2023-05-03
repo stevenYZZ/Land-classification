@@ -3,8 +3,9 @@ import datetime
 import logging
 import os
 import cv2
+
 import matplotlib.pyplot as plt
-from tensorflow.keras.layers import Input, Conv3D, Conv3DTranspose, multiply, Embedding, BatchNormalization, LeakyReLU, Flatten, Dense, Reshape, Activation, Dropout
+from tensorflow.keras.layers import Input, Conv3D, Conv2DTranspose, Conv3DTranspose, multiply, Embedding, BatchNormalization, LeakyReLU, Flatten, Dense, Reshape, Activation, Dropout
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical
@@ -16,7 +17,7 @@ from utils.visualization import RGBImage
 
 import wandb
 from PIL import Image
-
+import tensorflow as tf
 
 class GAN3D_HS():
     def __init__(self, input_shape, num_classes, latent_dim, checkpoint_dir):
@@ -67,20 +68,20 @@ class GAN3D_HS():
 
         model = Sequential()
 
-        model.add(Dense(1 * 1 * 4 * 256, activation="relu", input_dim=self.latent_dim))
-        model.add(Reshape((1, 1, 4, 256)))
+        model.add(Dense(9 * 9 * 2 * 128, activation="relu", input_dim=self.latent_dim))
+        model.add(Reshape((9, 9, 2, 128)))
         model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv3DTranspose(256, kernel_size=(3, 3, 18), strides=(3, 3, 5), padding="same"))
-        model.add(Activation("relu"))
+        model.add(Conv3DTranspose(128, kernel_size=(5, 5, 5), strides=(1, 1, 5), padding="same"))
+        model.add(LeakyReLU(alpha=0.2))
         model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv3DTranspose(64, kernel_size=(3, 3, 9), strides=(3, 3, 5), padding="same"))
-        model.add(Activation("relu"))
+        model.add(Conv3DTranspose(64, kernel_size=(5, 5, 5), strides=(1, 1, 5), padding="same"))
+        model.add(LeakyReLU(alpha=0.2))
         model.add(BatchNormalization(momentum=0.8))
 
 
-        model.add(Conv3DTranspose(1, kernel_size=(3, 3, 3), strides=(1, 1, 2), padding="same"))
+        model.add(Conv3DTranspose(1, kernel_size=(3, 3, 5), strides=(1, 1, 4), padding="same"))
         model.add(Activation("tanh"))
 
         model.summary()
@@ -111,15 +112,15 @@ class GAN3D_HS():
         # model.add(Dropout(0.25))
         # model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv3D(32, kernel_size=(3, 3, 24), strides=(2, 2, 8), input_shape=self.input_shape, padding="same"))
+        model.add(Conv3D(32, kernel_size=(3, 3, 7), strides=(1, 1, 1), input_shape=self.input_shape, padding="same"))
         model.add(LeakyReLU(alpha=0.2))
 
-        model.add(Conv3D(64, kernel_size=(3, 3, 16), strides=(2, 2, 4), padding="same"))
+        model.add(Conv3D(64, kernel_size=(3, 3, 5), strides=(1, 1, 1), padding="same"))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
         model.add(BatchNormalization(momentum=0.8))
 
-        model.add(Conv3D(128, kernel_size=(3, 3, 6), strides=(2, 2, 2), padding="same"))
+        model.add(Conv3D(128, kernel_size=(3, 3, 3), strides=(1, 1, 1), padding="same"))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
         model.add(BatchNormalization(momentum=0.8))
@@ -185,19 +186,31 @@ class GAN3D_HS():
 
                 # Plot the progress
 
-                print ("Training Metrics: %d [D loss: %f, acc.: %.2f%%, op_acc: %.2f%%] [G loss: %f]" % (epoch, d_loss[0], 100*d_loss[3], 100*d_loss[4], g_loss[0]))
+                print ("Training Metrics: %d [D loss: %f, acc.: %.2f%%, op_acc: %.2f%%] [D loss fake: %f, acc.: %.2f%%, op_acc: %.2f%%] [D loss real: %f, acc.: %.2f%%, op_acc: %.2f%%] [G loss: %f] " \
+                        % (epoch, d_loss[0], 100*d_loss[3], 100*d_loss[4], \
+                           d_loss_fake[0], 100*d_loss_fake[3], 100*d_loss_fake[4], \
+                           d_loss_real[0], 100*d_loss_real[3], 100*d_loss_real[4], \
+                           g_loss[0]))
                 wandb.log({
                     'D_loss': d_loss[0],
                     # 'D_acc': 100 * d_loss[3],
                     'D_op_acc': d_loss[4],
-                    'G_loss': g_loss[0]
+                    'G_loss': g_loss[0],
+                    'D_fake_loss': d_loss_fake[0],
+                    'D_fake acc': 100*d_loss_fake[3],
+                    'D_fake_op_acc': 100*d_loss_fake[4],
+                    'D_real_loss': d_loss_real[0],
+                    'D_real acc': 100*d_loss_real[3],
+                    'D_real_op_acc': 100*d_loss_real[4]
                 })
 
                 
              # Evaluate on the validation set
-            idx_val = np.random.randint(0, x_test.shape[0], batch_size)
-            real_data_val = x_test[idx_val]
-            real_labels_val = y_test[idx_val]
+            # idx_val = np.random.randint(0, x_test.shape[0], batch_size)
+            # real_data_val = x_test[idx_val]
+            real_data_val = x_test
+            # real_labels_val = y_test[idx_val]
+            real_labels_val = y_test
             d_loss_val = self.discriminator.evaluate(real_data_val, [valid, real_labels_val], verbose=0)
             g_loss_val = self.combined.evaluate([noise, fake_labels], [valid, fake_labels], verbose=0)
             print("Validation Metrics: %d [D loss: %f, acc.: %.2f%%, op_acc: %.2f%%] [G loss: %f]" % (epoch, d_loss_val[0], 100 * d_loss_val[3], 100 * d_loss_val[4], g_loss_val[0]))
@@ -260,7 +273,16 @@ if __name__ == '__main__':
 
     # 初始化日志
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-    
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        # 只使用第二个GPU设备
+        try:
+            tf.config.experimental.set_visible_devices(gpus[1], 'GPU')
+        except RuntimeError as e:
+            print(e)
+    else:
+        print("no GPU")
+
     # 1 数据预处理
     # 加载数据集
     data_ori, label_ori, num_classes = load_data(args.dataset, preprocessing=args.preprocess)
